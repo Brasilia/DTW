@@ -8,6 +8,9 @@
 
 using namespace std;
 
+int MAXSIZE_H;
+int MAXSIZE_W;
+
 float Min(float a, float b){
     if (a < b)
         return a;
@@ -25,6 +28,68 @@ struct VectorMult {
     int seriesClass;
     vector<float> **axes;
 };
+
+void AllocWarpM(float*** warpM, int maxSizeH, int maxSizeW){
+    maxSizeH = max(maxSizeH, maxSizeW) + 1; //formar matriz quadrada, com folga para casos base
+    maxSizeW = maxSizeH; //formar matriz quadrada
+    *warpM = (float**)malloc(sizeof(float*)*maxSizeH);
+    for (int i = 0; i < maxSizeH; i++){
+        (*warpM)[i] = (float*)malloc(sizeof(float)*maxSizeW);
+    }
+    for (int i = 1; i < maxSizeH; i++){
+        (*warpM)[i][0] = HUGE_VAL;
+    }
+    for (int i = 1; i < maxSizeW; i++){
+        (*warpM)[0][i] = HUGE_VAL;
+    }
+    (*warpM)[0][0] = 0;
+}
+
+void PrintWarpM(float** warpM, int maxSizeH, int maxSizeW){
+    for (int i = 0; i < maxSizeH; i++){
+        for (int j = 0; j < maxSizeW; j++){
+            int val;
+            if(warpM[i][j] == HUGE_VAL){
+                val = 1;
+            } else {
+                val = 0;
+            }
+            printf("%d ", val);
+        }
+        cout << endl;
+    }
+    cout << endl;
+}
+
+void FreeWarpM(float** warpM, int maxSizeH){
+    for (int i = 0; i < maxSizeH; i++){
+        free(warpM[i]);
+    }
+    free(warpM);
+}
+
+void MaxWarpM(float*** warpM, int sizeH, int sizeW){
+//    sizeH = max(sizeH, sizeW);
+//    sizeW = sizeH;
+    for(int i = 0; i < sizeH+1; i++){ //+0??
+        for(int j = 0; j < sizeW+1; j++){
+            (*warpM)[i][j] = HUGE_VAL;
+        }
+    }
+    (*warpM)[0][0] = 0;
+    PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
+}
+
+void MaxWarpM(float*** warpM, int sizeH, int sizeW, int bandW){
+    int maxSize = max(sizeH, sizeW);
+    bandW+=1;
+    for(int i = bandW; i < maxSize+1; i++){
+        (*warpM)[i-bandW][i] = HUGE_VAL;
+        (*warpM)[i][i-bandW] = HUGE_VAL;
+    }
+    (*warpM)[0][0] = 0;
+    PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
+}
 
 //Reads file to data structure
 bool ReadFile(const char *filename, vector<VectorMult> *inVectors, int *maxSize, int dimensions = 1){
@@ -108,46 +173,72 @@ float DTWDistance(vector<float> m, vector<float> n, float** warp){
     n.insert(n.begin(), 0);
     int mSize = m.size();
     int nSize = n.size();
-
-    for (int i = 1; i < mSize; i++){
-        for (int j = 1; j <nSize; j++){
+    //Makes path
+    int i, j;
+    for (i = 1; i < mSize; i++){
+        for (j = 1; j <nSize; j++){
             float cost = PointDist(m[i], n[j]);
             warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
         }
     }
-    float distance = warp[mSize-1][nSize-1];
+    float distance = warp[i-1][j-1];
     return distance;
 }
 
-void AllocWarpM(float*** warpM, int maxSizeH, int maxSizeW){
-    *warpM = (float**)malloc(sizeof(float*)*maxSizeH);
-    for (int i = 0; i < maxSizeH; i++){
-        (*warpM)[i] = (float*)malloc(sizeof(float)*maxSizeW);
-    }
-    for (int i = 1; i < maxSizeH; i++){
-        (*warpM)[i][0] = HUGE_VAL;
-    }
-    for (int i = 1; i < maxSizeW; i++){
-        (*warpM)[0][i] = HUGE_VAL;
-    }
-    (*warpM)[0][0] = 0;
-}
-
-void PrintWarpM(float** warpM, int maxSizeH, int maxSizeW){
-    for (int i = 0; i < maxSizeH; i++){
-        for (int j = 0; j < maxSizeW; j++){
-            printf("%.2f ", warpM[i][j]);
+//With Sakoe-Chiba band
+float DTWDistance(vector<float> m, vector<float> n, float*** warp, int band){
+    //mSize+1 rows, nSize+1 cols
+    m.insert(m.begin(), 0);
+    n.insert(n.begin(), 0);
+    int mSize = m.size();
+    int nSize = n.size();
+    int bandW = (band * max(mSize, nSize))/100;
+    //Crops bigger series so that the final corner can be reached
+    int maxSize = mSize + bandW;
+    mSize = min (maxSize, mSize);
+    nSize = min (maxSize, nSize);
+    //Sets out-of-range cells to infinity
+    MaxWarpM(warp, mSize, nSize, bandW);
+    //Makes path
+    int i, j;
+    for (i = 1; i < mSize; i++){
+        for (j = max(1, i-bandW); j < min(nSize, i+bandW); j++){
+            float cost = PointDist(m[i], n[j]);
+            (*warp)[i][j] = cost + min((*warp)[i-1][j-1], min((*warp)[i][j-1], (*warp)[i-1][j]));
         }
-        cout << endl;
     }
+    float distance = (*warp)[i-1][j-1];
+    return distance/mSize;
 }
 
-void FreeWarpM(float** warpM, int maxSizeH){
-    for (int i = 0; i < maxSizeH; i++){
-        free(warpM[i]);
+//Runs test dataset against train dataset and returns accuracy
+float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, float***warpM, int dimensions){
+    int accCounter = 0;
+    for (unsigned int i = 0; i < testVectors.size()/testVectors.size(); i++){ //test cases
+        float minDist = HUGE_VAL;
+        int nearestNClass = 0;
+        //int closest = -1;
+        for (unsigned int j = 0; j < trainVectors.size(); j++){ //templates
+            //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], *warpM);
+            float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM, 100);
+
+            if (dist < minDist){
+                minDist = dist;
+                nearestNClass = trainVectors[j].seriesClass;
+                //closest = j;
+            }
+        }
+        //cout << "Test case: " << i << "\nClosest: " << closest << "\nNNClass: " << nearestNClass << "\nTrueClass: " << testVectors[i].seriesClass << endl;
+        if (nearestNClass == testVectors[i].seriesClass){
+            accCounter++;
+        }
+        //getchar();
     }
-    free(warpM);
+    //Returns accuracy
+    return (float)accCounter/testVectors.size();
 }
+
+
 
 int main (int argc, char** argv){
 
@@ -163,6 +254,8 @@ int main (int argc, char** argv){
     };
     maxSizeH ++;
     maxSizeW ++;
+    MAXSIZE_H = maxSizeH;
+    MAXSIZE_W = maxSizeW;
 
     cout << maxSizeH << " maxH/maxW " << maxSizeW << endl;
     float **warpM = NULL;
@@ -175,27 +268,9 @@ int main (int argc, char** argv){
 
     clock_t time = clock();
     //Compare the test dataset to the train dataset
-    int accCounter = 0;
-    for (unsigned int i = 0; i < testVectors.size(); i++){ //test cases
-        float minDist = HUGE_VAL;
-        int nearestNClass = 0;
-        int closest = -1;
-        for (unsigned int j = 0; j < trainVectors.size(); j++){ //templates
-            float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM);
-            if (dist < minDist){
-                minDist = dist;
-                nearestNClass = trainVectors[j].seriesClass;
-                closest = j;
-            }
-        }
-        //cout << "Test case: " << i << "\nClosest: " << closest << "\nNNClass: " << nearestNClass << "\nTrueClass: " << testVectors[i].seriesClass << endl;
-        if (nearestNClass == testVectors[i].seriesClass){
-            accCounter++;
-        }
-        //getchar();
-    }
+    float accuracy = DTWTest(trainVectors, testVectors, &warpM, dimensions);
     time = (clock() - time);
-    float accuracy = (float)accCounter/testVectors.size();
+
     cout << "Accuracy: " << accuracy << endl;
     cout << "Total Time: " << time/1000 << "s" << endl;
     cout << "Avg Time: " << ((float)time/testVectors.size()) << "ms" << endl;
