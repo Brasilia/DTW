@@ -11,18 +11,6 @@ using namespace std;
 int MAXSIZE_H;
 int MAXSIZE_W;
 
-float Min(float a, float b){
-    if (a < b)
-        return a;
-    return b;
-}
-
-float Max(float a, float b){
-    if (a > b)
-        return a;
-    return b;
-}
-
 struct VectorMult {
     int dim;
     int seriesClass;
@@ -37,10 +25,10 @@ void AllocWarpM(float*** warpM, int maxSizeH, int maxSizeW){
         (*warpM)[i] = (float*)malloc(sizeof(float)*maxSizeW);
     }
     for (int i = 1; i < maxSizeH; i++){
-        (*warpM)[i][0] = HUGE_VAL;
+        (*warpM)[i][0] = HUGE_VALF;
     }
     for (int i = 1; i < maxSizeW; i++){
-        (*warpM)[0][i] = HUGE_VAL;
+        (*warpM)[0][i] = HUGE_VALF;
     }
     (*warpM)[0][0] = 0;
 }
@@ -49,7 +37,7 @@ void PrintWarpM(float** warpM, int maxSizeH, int maxSizeW){
     for (int i = 0; i < maxSizeH; i++){
         for (int j = 0; j < maxSizeW; j++){
             int val;
-            if(warpM[i][j] == HUGE_VAL){
+            if(warpM[i][j] == HUGE_VALF){
                 val = 1;
             } else {
                 val = 0;
@@ -68,26 +56,28 @@ void FreeWarpM(float** warpM, int maxSizeH){
     free(warpM);
 }
 
-void MaxWarpM(float*** warpM, int sizeH, int sizeW){
-    sizeH = max(sizeH, sizeW);
+//Prepares the matrix for Sakoe-Chiba, quadratic time
+void MaxWarpM(float** warpM, int sizeH, int sizeW){
+    sizeH = max(sizeH, sizeW);//FIXME tirar +1
     sizeW = sizeH;
-    for(int i = 0; i < sizeH+1; i++){ //+0??
-        for(int j = 0; j < sizeW+1; j++){
-            (*warpM)[i][j] = HUGE_VAL;
+    for(int i = 0; i < MAXSIZE_H+1-1; i++){ //+0??
+        for(int j = 0; j < MAXSIZE_W+1-1; j++){
+            warpM[i][j] = HUGE_VALF;
         }
     }
-    (*warpM)[0][0] = 0;
+    warpM[0][0] = 0;
     //PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
 }
 
+//Prepares the matrix for Sakoe-Chiba, linear time
 void MaxWarpM(float** warpM, int sizeH, int sizeW, int bandW){
     int maxSize = max(sizeH, sizeW);
     bandW+=1;
     for(int i = bandW; i < maxSize+1; i++){
-        (warpM)[i-bandW][i] = HUGE_VAL;
-        (warpM)[i][i-bandW] = HUGE_VAL;
+        warpM[i-bandW][i] = HUGE_VALF;
+        warpM[i][i-bandW] = HUGE_VALF;
     }
-    (warpM)[0][0] = 0;
+    warpM[0][0] = 0;
     //PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
 }
 
@@ -167,17 +157,31 @@ float PointDist(float m, float n){
     //return pow((m-n),2);
 }
 
+//Calculates point distance between multidimensional vectors, either dependent or independent
+float PointDist(VectorMult s1, VectorMult s2, int p1, int p2, int dim, bool dependent = false){
+    float sum = 0;
+    if (dependent){
+            for (int i = 0; i < dim; i++){
+            sum+= pow( (*s1.axes[i])[p1] - (*s2.axes[i])[p2], 2 );
+        }
+        return sqrt(sum);
+    } else {
+        for (int i = 0; i < dim; i++){
+            sum+= abs((*s1.axes[i])[p1] - (*s2.axes[i])[p2]);
+        }
+        return sum;
+    }
+}
+
 float DTWDistance(vector<float> m, vector<float> n, float** warp){
     //mSize+1 rows, nSize+1 cols
-    m.insert(m.begin(), 0);
-    n.insert(n.begin(), 0);
-    int mSize = m.size();
-    int nSize = n.size();
+    int mSize = m.size()+1;
+    int nSize = n.size()+1;
     //Makes path
     int i, j;
     for (i = 1; i < mSize; i++){
-        for (j = 1; j <nSize; j++){
-            float cost = PointDist(m[i], n[j]);
+        for (j = 1; j < nSize; j++){
+            float cost = PointDist(m[i-1], n[j-1]);
             warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
         }
     }
@@ -188,10 +192,8 @@ float DTWDistance(vector<float> m, vector<float> n, float** warp){
 //With Sakoe-Chiba band
 float DTWDistance(vector<float> m, vector<float> n, float** warp, int band){
     //mSize+1 rows, nSize+1 cols
-    m.insert(m.begin(), 0);
-    n.insert(n.begin(), 0);
-    int mSize = m.size();
-    int nSize = n.size();
+    int mSize = m.size()+1;
+    int nSize = n.size()+1;
     int bandW = (band * max(mSize, nSize))/100;
     //Crops bigger series so that the final corner can be reached
     int maxSize = mSize + bandW;
@@ -200,14 +202,43 @@ float DTWDistance(vector<float> m, vector<float> n, float** warp, int band){
     //Sets out-of-range cells to infinity
     MaxWarpM(warp, mSize, nSize, bandW);
     //Makes path
-    int i, j;
-    for (i = 1; i < mSize; i++){
-        for (j = max(1, i-bandW); j <= min(nSize, i+bandW); j++){
-            float cost = PointDist(m[i], n[j]);
+    int y, x;
+    for (int i = 1; i < mSize; i++){
+        for (int j = max(1, i-bandW); j <= min(nSize-1, i+bandW); j++){
+            float cost = PointDist(m[i-1], n[j-1]);
             warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
+            y = i;
+            x = j;
         }
     }
-    float distance = warp[i-1][j-1];
+    float distance = warp[y][x];
+    return distance/(mSize);
+}
+
+//With Sakoe-Chiba band, multidimensional
+float DTWDistance(VectorMult s1, VectorMult s2, int dim, float** warp, int band){
+    //mSize+1 rows, nSize+1 cols
+    int mSize = s1.axes[0]->size()+1;
+    int nSize = s2.axes[0]->size()+1;
+    int bandW = (band * max(mSize, nSize))/100;
+    //Crops bigger series so that the final corner can be reached
+    int maxSize = mSize + bandW;
+    mSize = min (maxSize, mSize);
+    nSize = min (maxSize, nSize);
+    //Sets out-of-range cells to infinity
+    MaxWarpM(warp, mSize, nSize, bandW);
+    //Makes path
+    int x, y;
+    for (int i = 1; i < mSize; i++){
+        for (int j = max(1, i-bandW); j <= min(nSize-1, i+bandW); j++){
+            float cost = PointDist(s1, s2, i-1, j-1, dim, false);
+            //float cost = PointDist((*s1.axes[0])[i-1], (*s2.axes[0])[j-1]);
+            warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
+            y = i;
+            x = j;
+        }
+    }
+    float distance = warp[y][x];
     return distance/(mSize);
 }
 
@@ -215,13 +246,13 @@ float DTWDistance(vector<float> m, vector<float> n, float** warp, int band){
 float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, float**warpM, int dimensions){
     int accCounter = 0;
     for (unsigned int i = 0; i < testVectors.size(); i++){ //test cases
-        float minDist = HUGE_VAL;
+        float minDist = HUGE_VALF;
         int nearestNClass = 0;
         //int closest = -1;
         for (unsigned int j = 0; j < trainVectors.size(); j++){ //templates
-            //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], *warpM);
-            float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM, 20);
-
+            float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM);
+            //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM, 20);
+            //float dist = DTWDistance(trainVectors[j], testVectors[i], dimensions, warpM, 20);
             if (dist < minDist){
                 minDist = dist;
                 nearestNClass = trainVectors[j].seriesClass;
@@ -242,14 +273,14 @@ float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, f
 
 int main (int argc, char** argv){
 
-    int dimensions = 1;
+    int dimensions = 3;
     int maxSizeH = 0, maxSizeW = 0;
     vector<VectorMult> trainVectors;
     vector<VectorMult> testVectors;
-    if(!ReadFile("treino.txt", &trainVectors, &maxSizeH, dimensions)){
+    if(!ReadFile("treino3D.txt", &trainVectors, &maxSizeH, dimensions)){
         return -1;
     };
-    if(!ReadFile("teste.txt", &testVectors, &maxSizeW, dimensions)){
+    if(!ReadFile("treino3D.txt", &testVectors, &maxSizeW, dimensions)){
         return -1;
     };
     maxSizeH ++;
@@ -279,6 +310,6 @@ int main (int argc, char** argv){
     FreeVectors(&testVectors, dimensions);
     FreeVectors(&trainVectors, dimensions);
 
-    //getchar();
+    getchar();
     return 0;
 }
