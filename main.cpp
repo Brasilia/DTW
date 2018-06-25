@@ -30,7 +30,7 @@ struct VectorMult {
 };
 
 void AllocWarpM(float*** warpM, int maxSizeH, int maxSizeW){
-    maxSizeH = max(maxSizeH, maxSizeW) + 1; //formar matriz quadrada, com folga para casos base
+    maxSizeH = max(maxSizeH, maxSizeW) + 1 +1; //formar matriz quadrada, com folga para casos base
     maxSizeW = maxSizeH; //formar matriz quadrada
     *warpM = (float**)malloc(sizeof(float*)*maxSizeH);
     for (int i = 0; i < maxSizeH; i++){
@@ -69,26 +69,26 @@ void FreeWarpM(float** warpM, int maxSizeH){
 }
 
 void MaxWarpM(float*** warpM, int sizeH, int sizeW){
-//    sizeH = max(sizeH, sizeW);
-//    sizeW = sizeH;
+    sizeH = max(sizeH, sizeW);
+    sizeW = sizeH;
     for(int i = 0; i < sizeH+1; i++){ //+0??
         for(int j = 0; j < sizeW+1; j++){
             (*warpM)[i][j] = HUGE_VAL;
         }
     }
     (*warpM)[0][0] = 0;
-    PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
+    //PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
 }
 
-void MaxWarpM(float*** warpM, int sizeH, int sizeW, int bandW){
+void MaxWarpM(float** warpM, int sizeH, int sizeW, int bandW){
     int maxSize = max(sizeH, sizeW);
     bandW+=1;
     for(int i = bandW; i < maxSize+1; i++){
-        (*warpM)[i-bandW][i] = HUGE_VAL;
-        (*warpM)[i][i-bandW] = HUGE_VAL;
+        (warpM)[i-bandW][i] = HUGE_VAL;
+        (warpM)[i][i-bandW] = HUGE_VAL;
     }
-    (*warpM)[0][0] = 0;
-    PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
+    (warpM)[0][0] = 0;
+    //PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
 }
 
 //Reads file to data structure
@@ -186,7 +186,7 @@ float DTWDistance(vector<float> m, vector<float> n, float** warp){
 }
 
 //With Sakoe-Chiba band
-float DTWDistance(vector<float> m, vector<float> n, float*** warp, int band){
+float DTWDistance(vector<float> m, vector<float> n, float** warp, int band){
     //mSize+1 rows, nSize+1 cols
     m.insert(m.begin(), 0);
     n.insert(n.begin(), 0);
@@ -202,25 +202,25 @@ float DTWDistance(vector<float> m, vector<float> n, float*** warp, int band){
     //Makes path
     int i, j;
     for (i = 1; i < mSize; i++){
-        for (j = max(1, i-bandW); j < min(nSize, i+bandW); j++){
+        for (j = max(1, i-bandW); j <= min(nSize, i+bandW); j++){
             float cost = PointDist(m[i], n[j]);
-            (*warp)[i][j] = cost + min((*warp)[i-1][j-1], min((*warp)[i][j-1], (*warp)[i-1][j]));
+            warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
         }
     }
-    float distance = (*warp)[i-1][j-1];
-    return distance/mSize;
+    float distance = warp[i-1][j-1];
+    return distance/(mSize);
 }
 
 //Runs test dataset against train dataset and returns accuracy
-float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, float***warpM, int dimensions){
+float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, float**warpM, int dimensions){
     int accCounter = 0;
-    for (unsigned int i = 0; i < testVectors.size()/testVectors.size(); i++){ //test cases
+    for (unsigned int i = 0; i < testVectors.size(); i++){ //test cases
         float minDist = HUGE_VAL;
         int nearestNClass = 0;
         //int closest = -1;
         for (unsigned int j = 0; j < trainVectors.size(); j++){ //templates
             //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], *warpM);
-            float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM, 100);
+            float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM, 20);
 
             if (dist < minDist){
                 minDist = dist;
@@ -268,7 +268,7 @@ int main (int argc, char** argv){
 
     clock_t time = clock();
     //Compare the test dataset to the train dataset
-    float accuracy = DTWTest(trainVectors, testVectors, &warpM, dimensions);
+    float accuracy = DTWTest(trainVectors, testVectors, warpM, dimensions);
     time = (clock() - time);
 
     cout << "Accuracy: " << accuracy << endl;
@@ -279,6 +279,6 @@ int main (int argc, char** argv){
     FreeVectors(&testVectors, dimensions);
     FreeVectors(&trainVectors, dimensions);
 
-    getchar();
+    //getchar();
     return 0;
 }
