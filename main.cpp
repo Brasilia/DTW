@@ -119,13 +119,22 @@ bool ReadFile(const char *filename, vector<VectorMult> *inVectors, int *maxSize,
             //Cicles through all dimensions
             for (int i = 0; i < dimensions; i++){
                 scan = sscanf(&line[stroffset], "%f%n", &f, &nread);
+                if (scan == EOF) //end of file, abort
+                    break;
                 stroffset += nread;
                 (*inVectors)[nlines].axes[i]->push_back(f);
             }
         }
         *maxSize = max(*maxSize, (int)((*inVectors)[nlines].axes[0]->size()) );
         nlines++; //next line
+//        for (int i = 0; i < (int)((*inVectors)[nlines-1].axes[0]->size()); i++){
+//            cout << (*(*inVectors)[nlines-1].axes[0])[i] << endl;
+//        }
+//        cout << endl<<endl;
     }
+
+
+
     fclose(fin);
     return true;
 }
@@ -143,7 +152,7 @@ void FreeVectors(vector<VectorMult> *v, int dimension = 1){
 void PrintDataset(vector<VectorMult> inVectors, int dimensions){
     for (unsigned int i = 0; i < inVectors.size(); i++){
         for (int j = 0; j < dimensions; j++){
-            cout << "j " << j << endl;
+            cout << "j " << j << "  Size: " << inVectors[i].axes[j]->size() << endl;
             for (unsigned int k = 0; k < inVectors[i].axes[j]->size(); k++){
                 cout << inVectors[i].axes[j]->at(k) << " ";
             }
@@ -215,8 +224,35 @@ float DTWDistance(vector<float> m, vector<float> n, float** warp, int band){
     return distance/(mSize);
 }
 
-//With Sakoe-Chiba band, multidimensional
+//Multidimensional, no band
+float DTWDistance(VectorMult s1, VectorMult s2, int dim, float** warp){
+    //mSize+1 rows, nSize+1 cols
+    int mSize = s1.axes[0]->size()+1;
+    int nSize = s2.axes[0]->size()+1;
+//    cout << "mSize: " << mSize << endl;
+//    cout << "nSize: " << nSize << endl;
+//    cout << s1.axes[0]->size() << " " << s1.axes[1]->size() << " " << s1.axes[2]->size() << " " << endl;
+//    cout << s2.axes[0]->size() << " " << s2.axes[1]->size() << " " << s2.axes[2]->size() << " " << endl;
+    //Makes path
+    int i, j;
+    for (i = 1; i < mSize; i++){
+        for (j = 1; j < nSize; j++){
+            float cost = PointDist(s1, s2, i-1, j-1, dim, false);
+//            cout << "cost "<< cost<<endl;
+//            getchar();
+            warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
+        }
+    }
+    float distance = warp[i-1][j-1];
+    //cout << distance <<endl;
+    return distance;
+}
+
+//Sakoe-Chiba Band, Multidimensional
 float DTWDistance(VectorMult s1, VectorMult s2, int dim, float** warp, int band){
+    if (band < 0){ //No Band
+        return DTWDistance(s1, s2, dim, warp);
+    }
     //mSize+1 rows, nSize+1 cols
     int mSize = s1.axes[0]->size()+1;
     int nSize = s2.axes[0]->size()+1;
@@ -232,7 +268,6 @@ float DTWDistance(VectorMult s1, VectorMult s2, int dim, float** warp, int band)
     for (int i = 1; i < mSize; i++){
         for (int j = max(1, i-bandW); j <= min(nSize-1, i+bandW); j++){
             float cost = PointDist(s1, s2, i-1, j-1, dim, false);
-            //float cost = PointDist((*s1.axes[0])[i-1], (*s2.axes[0])[j-1]);
             warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
             y = i;
             x = j;
@@ -250,9 +285,9 @@ float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, f
         int nearestNClass = 0;
         //int closest = -1;
         for (unsigned int j = 0; j < trainVectors.size(); j++){ //templates
-            float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM);
+            //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM);
             //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM, 20);
-            //float dist = DTWDistance(trainVectors[j], testVectors[i], dimensions, warpM, 20);
+            float dist = DTWDistance(trainVectors[j], testVectors[i], dimensions, warpM, 20);
             if (dist < minDist){
                 minDist = dist;
                 nearestNClass = trainVectors[j].seriesClass;
@@ -277,12 +312,15 @@ int main (int argc, char** argv){
     int maxSizeH = 0, maxSizeW = 0;
     vector<VectorMult> trainVectors;
     vector<VectorMult> testVectors;
-    if(!ReadFile("treino3D.txt", &trainVectors, &maxSizeH, dimensions)){
+    if(!ReadFile("teste3D.txt", &trainVectors, &maxSizeH, dimensions)){
         return -1;
     };
-    if(!ReadFile("treino3D.txt", &testVectors, &maxSizeW, dimensions)){
+    if(!ReadFile("teste3D.txt", &testVectors, &maxSizeW, dimensions)){
         return -1;
     };
+    //PrintDataset(trainVectors, dimensions);
+    //PrintDataset(testVectors, dimensions);
+
     maxSizeH ++;
     maxSizeW ++;
     MAXSIZE_H = maxSizeH;
@@ -292,8 +330,8 @@ int main (int argc, char** argv){
     float **warpM = NULL;
     AllocWarpM(&warpM, maxSizeH, maxSizeW);
 
-    cout << "vsize = " << trainVectors.size() << endl;
-    cout << "vsize = " << testVectors.size() << endl;
+    cout << "vsize1 = " << trainVectors.size() << endl;
+    cout << "vsize2 = " << testVectors.size() << endl;
 
     //getchar();
 
