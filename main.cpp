@@ -1,3 +1,9 @@
+/*
+DTW - Multidimensional, Sakoe-Chiba
+Autor: Rafael Miranda Lopes
+02/07/2018
+*/
+
 #include <vector>
 #include <stdio.h>
 #include <string>
@@ -54,19 +60,6 @@ void FreeWarpM(float** warpM, int maxSizeH){
         free(warpM[i]);
     }
     free(warpM);
-}
-
-//Prepares the matrix for Sakoe-Chiba, quadratic time
-void MaxWarpM(float** warpM, int sizeH, int sizeW){
-    sizeH = max(sizeH, sizeW);//FIXME tirar +1
-    sizeW = sizeH;
-    for(int i = 0; i < MAXSIZE_H+1-1; i++){ //+0??
-        for(int j = 0; j < MAXSIZE_W+1-1; j++){
-            warpM[i][j] = HUGE_VALF;
-        }
-    }
-    warpM[0][0] = 0;
-    //PrintWarpM(*warpM, MAXSIZE_H, MAXSIZE_W);
 }
 
 //Prepares the matrix for Sakoe-Chiba, linear time
@@ -153,10 +146,10 @@ void PrintDataset(vector<VectorMult> inVectors, int dimensions){
     }
 }
 
-//Calculates point distance between multidimensional vectors, either dependent or independent
-float PointDist(VectorMult s1, VectorMult s2, int p1, int p2, int dim, bool dependent = false){
+//Calculates point distance between multidimensional vectors, either using sqr(dif) or abs(dif)
+float PointDist(VectorMult s1, VectorMult s2, int p1, int p2, int dim, bool square = false){
     float sum = 0;
-    if (dependent){
+    if (square){
             for (int i = 0; i < dim; i++){
             sum+= pow( (*s1.axes[i])[p1] - (*s2.axes[i])[p2], 2 ); //Squared Euclidean
         }
@@ -178,7 +171,7 @@ float DTWDistance(VectorMult s1, VectorMult s2, int dim, float** warp){
     int i, j;
     for (i = 1; i < mSize; i++){
         for (j = 1; j < nSize; j++){
-            float cost = PointDist(s1, s2, i-1, j-1, dim, false);
+            float cost = PointDist(s1, s2, i-1, j-1, dim);
             warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
         }
     }
@@ -205,7 +198,7 @@ float DTWDistance(VectorMult s1, VectorMult s2, int dim, float** warp, int band)
     int x, y;
     for (int i = 1; i < mSize; i++){
         for (int j = max(1, i-bandW); j <= min(nSize-1, i+bandW); j++){
-            float cost = PointDist(s1, s2, i-1, j-1, dim, false);
+            float cost = PointDist(s1, s2, i-1, j-1, dim);
             warp[i][j] = cost + min(warp[i-1][j-1], min(warp[i][j-1], warp[i-1][j]));
             y = i;
             x = j;
@@ -216,16 +209,14 @@ float DTWDistance(VectorMult s1, VectorMult s2, int dim, float** warp, int band)
 }
 
 //Runs test dataset against train dataset and returns accuracy
-float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, float**warpM, int dimensions){
+float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, float**warpM, int dimensions, int band){
     int accCounter = 0;
     for (unsigned int i = 0; i < testVectors.size(); i++){ //test cases
         float minDist = HUGE_VALF;
         int nearestNClass = 0;
         //int closest = -1;
         for (unsigned int j = 0; j < trainVectors.size(); j++){ //templates
-            //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM);
-            //float dist = DTWDistance(*trainVectors[j].axes[0], *testVectors[i].axes[0], warpM, 20);
-            float dist = DTWDistance(trainVectors[j], testVectors[i], dimensions, warpM, 40);
+            float dist = DTWDistance(trainVectors[j], testVectors[i], dimensions, warpM, band);
             if (dist < minDist){
                 minDist = dist;
                 nearestNClass = trainVectors[j].seriesClass;
@@ -236,7 +227,6 @@ float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, f
         if (nearestNClass == testVectors[i].seriesClass){
             accCounter++;
         }
-        //getchar();
     }
     //Returns accuracy
     return (float)accCounter/testVectors.size();
@@ -245,47 +235,49 @@ float DTWTest(vector<VectorMult> trainVectors, vector<VectorMult> testVectors, f
 
 
 int main (int argc, char** argv){
-
-    int dimensions = 3;
+    //Args: 1 - train set; 2 - test set; 3 - dimensions count
+    if (argc < 4){
+        cerr << "Numero de argumentos invalido. Usar <executavel> <arquivo de treinamento> <arquivo de teste> <numero de dimensoes>" << endl;
+    }
+    int dimensions = atoi(argv[3]); // 1 or 3
+    const int NBANDS = 8;
+    int bands[NBANDS] = {-1, 0, 1, 5, 10, 20, 50, 100};
     int maxSizeH = 0, maxSizeW = 0;
     vector<VectorMult> trainVectors;
     vector<VectorMult> testVectors;
-    if(!ReadFile("treino3D.txt", &trainVectors, &maxSizeH, dimensions)){
-        return -1;
-    };
-    if(!ReadFile("teste3D.txt", &testVectors, &maxSizeW, dimensions)){
-        return -1;
-    };
-    //PrintDataset(trainVectors, dimensions);
-    //PrintDataset(testVectors, dimensions);
 
+    //Reads files to vectors
+    if(!ReadFile(argv[1], &trainVectors, &maxSizeH, dimensions)){
+        return -1;
+    };
+    if(!ReadFile(argv[2], &testVectors, &maxSizeW, dimensions)){
+        return -1;
+    };
     maxSizeH ++;
     maxSizeW ++;
     MAXSIZE_H = maxSizeH;
     MAXSIZE_W = maxSizeW;
-
-    cout << maxSizeH << " maxH/maxW " << maxSizeW << endl;
+    //cout << maxSizeH << " maxH/maxW " << maxSizeW << endl;
+    //Allocates mem matrix
     float **warpM = NULL;
     AllocWarpM(&warpM, maxSizeH, maxSizeW);
+    //cout << "vsize1 = " << trainVectors.size() << endl;
+    //cout << "vsize2 = " << testVectors.size() << endl;
 
-    cout << "vsize1 = " << trainVectors.size() << endl;
-    cout << "vsize2 = " << testVectors.size() << endl;
+    //Test: base DTW, then with bands(%): 0, 1, 5, 10, 20, 50, 100
+    cout << "Band, Accuracy, Total Time(s), Avg Time(ms)" << endl;
+    for (int i = 0; i < NBANDS; i++) {
+        clock_t time = clock();
+        //Compare the test dataset to the train dataset
+        float accuracy = DTWTest(trainVectors, testVectors, warpM, dimensions, bands[i]);
+        time = (clock() - time);
+        cout << bands[i] << ", " << accuracy << ", " << (float)time/1000 << ", " << float(time)/testVectors.size() << endl;
+    }
 
-    //getchar();
-
-    clock_t time = clock();
-    //Compare the test dataset to the train dataset
-    float accuracy = DTWTest(trainVectors, testVectors, warpM, dimensions);
-    time = (clock() - time);
-
-    cout << "Accuracy: " << accuracy << endl;
-    cout << "Total Time: " << time/1000 << "s" << endl;
-    cout << "Avg Time: " << ((float)time/testVectors.size()) << "ms" << endl;
-
+    //Free memory
     FreeWarpM(warpM, maxSizeH);
     FreeVectors(&testVectors, dimensions);
     FreeVectors(&trainVectors, dimensions);
 
-    getchar();
     return 0;
 }
